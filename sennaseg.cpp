@@ -46,8 +46,6 @@ embedding_t words; //词向量
 
 double *A; //特征矩阵：[分类数][隐藏层] 第二层的权重
 double *B; //特征矩阵：[隐藏层][特征数] 第一层的权重
-//double biasH[H] = {0};
-//double biasOutput[MAX_C] = {0};
 double *gA, *gB;
 
 //===================== 已知数据 =====================
@@ -77,7 +75,7 @@ int *tb; //目标矩阵[样本数] 测试集
 
 
 double time_start;
-double lambda = 0.01; //正则项参数权重
+double lambda = 0;//0.01; //正则项参数权重
 double alpha = 0.01; //学习速率
 
 const int thread_num = 4;
@@ -324,13 +322,6 @@ double check(){
 	for(int i = 0; i < words.size; i++,pnum++){
 		ps += words.value[i]*words.value[i];
 	}
-	/*double bh = 0, bc = 0;
-	for(int i = 0; i < H; i++){
-		bh += biasH[i] * biasH[i];
-	}
-	for(int i = 0; i < class_size; i++){
-		bc += biasOutput[i] * biasOutput[i];
-	}*/
 
 	char fname[100];
 	sprintf(fname, "%s_A", model_name);
@@ -391,17 +382,13 @@ int main(int argc, char **argv){
 	B = new double[H*input_size];
 	gB = new double[H*input_size];
 
-	//if(!readFile("model_gd")){
 	for(int i = 0; i < class_size * H; i++){
-		//A[i] = (nextDouble()-0.5) * sqrt(12/sqrt(H));
 		A[i] = (nextDouble()-0.5) / sqrt(H);
 	}
 	for(int i = 0; i < H * input_size; i++){
 		B[i] = (nextDouble()-0.5) /sqrt(input_size);
-		//B[i] = (nextDouble()-0.5) * sqrt(12/sqrt(input_size));
 	}
 	for(int i = 0; i < words.size; i++){
-		//words.value[i] = (nextDouble()-0.5) * sqrt(12);
 		words.value[i] = (nextDouble()-0.5);
 	}
 	
@@ -415,8 +402,8 @@ int main(int argc, char **argv){
 	time_start = getTime();
 	int iter = 0;
 
-	int *order = new int[N+vN];
-	for(int i = 0; i < N+vN; i++){
+	int *order = new int[N];
+	for(int i = 0; i < N; i++){
 		order[i] = i;
 	}
 
@@ -436,10 +423,7 @@ int main(int argc, char **argv){
 		//memset(gB, 0, sizeof(double)*H*input_size);
 
 		for(int i = 0; i < N; i++){
-		//	swap(order[i], order[rand()%N]);
-		}
-		for(int i = 0; i < N; i++){
-			swap(order[i], order[rand()%(N)]);
+			swap(order[i], order[rand()%N]);
 		}
 		double tlambda = lambda;
 		for(int i = 0; i < N; i++){
@@ -447,8 +431,8 @@ int main(int argc, char **argv){
 			if(i % 10 == 0)
 				lambda = tlambda;
 			int s = order[i];
-			data_t *x = s>=N ? vdata+(s-N)*window_size :  data+s*window_size;
-			int ans = s>=N ? vb[s-N] : b[s];
+			data_t *x = data+s*window_size;
+			int ans = b[s];
 
 			int tmp;
 			checkCase(x, ans, tmp, true);
