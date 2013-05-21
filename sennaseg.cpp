@@ -165,7 +165,7 @@ void fastmult(double *A, double *x, double *b, int xlen, int blen){
 	}
 }
 
-double checkCase(data_t *id, int ans, int &correct, int &output, bool gd = false){
+double checkCase(data_t *id, int ans, int &correct, int &output, double *p=NULL, bool gd = false){
 	double x[MAX_F];
 	for(int i = 0, j = 0; i < window_size; i++){
 		int offset = id[i].word * words.element_size;
@@ -273,6 +273,8 @@ double checkCase(data_t *id, int ans, int &correct, int &output, bool gd = false
 			maxi = y[i];
 			output = i;
 		}
+		if(p)
+			p[i] = -log(y[i]);
 	}
 
 	if(ok)
@@ -287,6 +289,49 @@ void writeFile(const char *name, double *A, int size){
 	fclose(fout);
 }
 
+//0S 1B 2E 3M
+double inf = 1e100;
+double viterbi_trans[4][4]={
+	{0, 0, inf, inf},
+	{inf, inf, 0, 0},
+	{0, 0, inf, inf},
+	{inf, inf, 0, 0}
+};
+
+void viterbi(double dp[][4], int *ret, int len){
+	int back[2000][4];
+	double rec[2][4];
+	double *now = rec[0];
+	double *next = rec[1];
+
+	//0S 1B 2E 3M
+	now[0] = dp[0][0];
+	now[1] = dp[0][1];
+	now[2] = inf;
+	now[3] = inf;
+
+	for(int i = 1; i < len; i++){
+		next[0] = next[1] = next[2] = next[3] = inf;
+		for(int j = 0; j < 4; j++){ //上一个节点
+			double v = now[j];
+			for(int k = 0; k < 4; k++){ //当前节点
+				if(next[k] > v + viterbi_trans[j][k] + dp[i][k]){
+					next[k] = v + viterbi_trans[j][k] + dp[i][k];
+					back[i][k] = j;
+				}
+			}
+		}
+		swap(now, next);
+	}
+	int index = now[0]<now[2]?0:2;
+	
+	while(len > 0){
+		len--;
+		ret[len] = index;
+		index = back[len][index];
+	}
+	
+}
 
 double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *fname = NULL){
 	if(fname){ //测试集，带输出
@@ -294,23 +339,34 @@ double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *
 		correct = 0;
 		double ret = 0;
 
+		double dp[2000][4];
+		int label[2000];
+		int ans[2000];
+		char *chs[2000];
+		int index = 0;
+
 		for(int s = 0; s < N; s++){
 			int tc = 0;
 			int output;
-			double tv = checkCase(data+s*window_size, b[s], tc, output);
+			ret += checkCase(data+s*window_size, b[s], tc, output, dp[index]);
 
-			ret += tv;
-			correct += tc;
-			if((*(data+s*window_size+2)).word == 1){
-				correctU += tc;
-			}
+			ans[index] = b[s];
+			chs[index] = (*(data+s*window_size+2)).ch;
+			index++;
 
-			fprintf(fout, "%s", (*(data+s*window_size+2)).ch);
-			if(output == 0 || output == 2){
-				fprintf(fout, " ");
-			}
 			if((*(data+s*window_size+2+1)).word == 2){ //下一个是padding
+				viterbi(dp, label, index);
+				for(int i = 0; i < index; i++){
+					fprintf(fout, "%s", chs[i]);
+					if(label[i] == 0 || label[i] == 2){
+						fprintf(fout, " ");
+					}
+					if(ans[i] == label[i])
+						correct++;
+				}
 				fprintf(fout, "\n");
+
+				index = 0;
 			}
 		}
 		fclose(fout);
@@ -414,7 +470,7 @@ int main(int argc, char **argv){
 	input_size = window_size * vector_size;
 
 	printf("init. input(features):%d, hidden:%d, output(classes):%d, alpha:%lf, lambda:%.16lf\n", input_size, H, class_size, alpha, lambda);
-	printf("window_size:%d, vector_size:%d, vocab_size:%d\n", window_size, vector_size, words.element_num);
+	printf("window_size:%d, vector_size:%d, vocab_size:%d, allwordsLen:%d, lineMax:%d\n", window_size, vector_size, words.element_num, allwordsLen, lineMax);
 
 	A = new double[class_size*H];
 	gA = new double[class_size*H];
@@ -475,7 +531,7 @@ int main(int argc, char **argv){
 			int ans = b[s];
 
 			int tmp, output;
-			checkCase(x, ans, tmp, output, true);
+			checkCase(x, ans, tmp, output, NULL, true);
 
 			if ((i%1000)==0){
 				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));

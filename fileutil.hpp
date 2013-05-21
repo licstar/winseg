@@ -136,7 +136,7 @@ void init(const char *train_file){
 
 }
 
-
+int lineMax = 0;
 void readAllData(const char *file, const char *dataset, int window_size, data_t *&data, int *&b, int &N, int &uN){
 	vector<vector<pair<data_t, int> > > mydata;
 	FILE *fi=fopen(file, "rb");
@@ -172,7 +172,7 @@ void readAllData(const char *file, const char *dataset, int window_size, data_t 
 	int unknown = 0;
 	for(size_t i = 0, offset=0; i < mydata.size(); i++){
 		vector<pair<data_t, int> > &vec = mydata[i];
-
+		lineMax = max(lineMax, (int)vec.size());
 		for(int j = 0; j < (int)vec.size(); j++, offset+=window_size){
 			for(int k = hw; k > 0; k--){
 				if(j-k >= 0){
