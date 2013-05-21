@@ -51,6 +51,7 @@ double *gA, *gB;
 //===================== 已知数据 =====================
 struct data_t{
 	int word; //词的编号
+	char *ch; //实际的词，用于输出
 };
 //训练集
 data_t *data; //训练数据：[样本数][特征数]
@@ -77,6 +78,7 @@ int *tb; //目标矩阵[样本数] 测试集
 double time_start;
 double lambda = 0;//0.01; //正则项参数权重
 double alpha = 0.01; //学习速率
+int iter = 0;
 
 const int thread_num = 4;
 const int patch_size = thread_num;
@@ -163,7 +165,7 @@ void fastmult(double *A, double *x, double *b, int xlen, int blen){
 	}
 }
 
-double checkCase(data_t *id, int ans, int &correct, bool gd = false){
+double checkCase(data_t *id, int ans, int &correct, int &output, bool gd = false){
 	double x[MAX_F];
 	for(int i = 0, j = 0; i < window_size; i++){
 		int offset = id[i].word * words.element_size;
@@ -261,10 +263,16 @@ double checkCase(data_t *id, int ans, int &correct, bool gd = false){
 		}
 	}
 
+	output = 0;
+	double maxi = 0;
 	bool ok = true;
 	for(int i = 0; i < class_size; i++){
 		if(i != ans && y[i] >= y[ans])
 			ok = false;
+		if(y[i] > maxi){
+			maxi = y[i];
+			output = i;
+		}
 	}
 
 	if(ok)
@@ -280,24 +288,53 @@ void writeFile(const char *name, double *A, int size){
 }
 
 
-double checkSet(data_t *data, int *b, int N, int &correct, int &correctU){
-	correct = 0;
-	double ret = 0;
-	#pragma omp parallel for schedule(dynamic) num_threads(thread_num)
-	for(int s = 0; s < N; s++){
-		int tc = 0;
-		double tv = checkCase(data+s*window_size, b[s], tc);
+double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *fname = NULL){
+	if(fname){ //测试集，带输出
+		FILE *fout = fopen(fname, "w");
+		correct = 0;
+		double ret = 0;
 
-		#pragma omp critical
-		{
+		for(int s = 0; s < N; s++){
+			int tc = 0;
+			int output;
+			double tv = checkCase(data+s*window_size, b[s], tc, output);
+
 			ret += tv;
 			correct += tc;
 			if((*(data+s*window_size+2)).word == 1){
 				correctU += tc;
 			}
+
+			fprintf(fout, "%s", (*(data+s*window_size+2)).ch);
+			if(output == 0 || output == 2){
+				fprintf(fout, " ");
+			}
+			if((*(data+s*window_size+2+1)).word == 2){ //下一个是padding
+				fprintf(fout, "\n");
+			}
 		}
+		fclose(fout);
+		return ret;
+	}else{
+		correct = 0;
+		double ret = 0;
+		#pragma omp parallel for schedule(dynamic) num_threads(thread_num)
+		for(int s = 0; s < N; s++){
+			int tc = 0;
+			int output;
+			double tv = checkCase(data+s*window_size, b[s], tc, output);
+
+			#pragma omp critical
+			{
+				ret += tv;
+				correct += tc;
+				if((*(data+s*window_size+2)).word == 1){
+					correctU += tc;
+				}
+			}
+		}
+		return ret;
 	}
-	return ret;
 }
 
 //检查正确率和似然
@@ -306,10 +343,13 @@ double check(){
 	double ret = 0, ev, et;
 	int correct = 0, correctTest = 0, correctValid = 0;
 	int correctU = 0, correctTestU = 0, correctValidU = 0;
+	char fname[100];
 
 	ret = checkSet(data, b, N, correct, correctU);
 	ev = checkSet(vdata, vb, vN, correctValid, correctValidU);
-	et = checkSet(tdata, tb, tN, correctTest, correctTestU);
+
+	sprintf(fname, "%s_%d_output", model_name, iter);
+	et = checkSet(tdata, tb, tN, correctTest, correctTestU, fname);
 
 	double ps = 0;
 	int pnum = 0;
@@ -323,7 +363,6 @@ double check(){
 		ps += words.value[i]*words.value[i];
 	}
 
-	char fname[100];
 	sprintf(fname, "%s_A", model_name);
 	writeFile(fname, A, class_size*H);
 	sprintf(fname, "%s_B", model_name);
@@ -344,15 +383,15 @@ double check(){
 	return fret;
 }
 
-
+/*
 int readFile(const char *name){
 	FILE *fin = fopen(name, "rb");
 	if(!fin)
 		return 0;
-	size_t t = fread(A, 1, sizeof(A), fin);
+	fread(A, 1, sizeof(A), fin);
 	fclose(fin);
 	return 1;
-}
+}*/
 
 int main(int argc, char **argv){
 	model_name = argv[0];
@@ -400,18 +439,19 @@ int main(int argc, char **argv){
 	
 
 	time_start = getTime();
-	int iter = 0;
 
 	int *order = new int[N];
 	for(int i = 0; i < N; i++){
 		order[i] = i;
 	}
 
-	double lastLH = 1e100;
+	//double lastLH = 1e100;
 	while(1){
 		//计算正确率
-		printf("iter: %d, ", iter++);
-		double LH = check();
+		printf("iter: %d, ", iter);
+		//double LH = check();
+		check();
+		iter++;
 		/*if(LH > lastLH){
 			alpha = 0.0001;
 		}
@@ -434,8 +474,8 @@ int main(int argc, char **argv){
 			data_t *x = data+s*window_size;
 			int ans = b[s];
 
-			int tmp;
-			checkCase(x, ans, tmp, true);
+			int tmp, output;
+			checkCase(x, ans, tmp, output, true);
 
 			if ((i%1000)==0){
 				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));

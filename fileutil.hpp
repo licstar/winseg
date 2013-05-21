@@ -37,7 +37,26 @@ void readWord(char *word, FILE *fin){
 	word[a]=0;
 }
 
+char allwords[150000];
+
+map<string, char*> chkch;
+int allwordsLen = 0;
 map<string, int> chk;
+
+char *addRealWords(char *word){
+	string w = word;
+	map<string, char*>::iterator it = chkch.find(w);
+	if(it != chkch.end()){
+		return it->second;
+	}else{
+		int len = strlen(word);
+		char *ret = allwords+allwordsLen;
+		strcpy(allwords+allwordsLen, word);
+		allwordsLen += len+1;
+		chkch[word] = ret;
+		return ret;
+	}
+}
 
 data_t addWord(char *word){
 	data_t ret;
@@ -49,6 +68,7 @@ data_t addWord(char *word){
 		ret.word = chk.size();
 		chk[w] = ret.word;
 	}
+	ret.ch = addRealWords(word);
 	return ret;
 }
 
@@ -61,6 +81,7 @@ data_t getWord(char *word){
 	}else{
 		ret.word = chk["unknown"];
 	}
+	ret.ch = addRealWords(word);
 	return ret;
 }
 
@@ -124,6 +145,7 @@ void readAllData(const char *file, const char *dataset, int window_size, data_t 
 
 	data_t padding; //这个想办法初始化一下
 	padding.word = 2;
+	padding.ch = NULL;
 
 	N = 0;
 	while(1){
