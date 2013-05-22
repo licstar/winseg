@@ -102,10 +102,24 @@ data_t readWordIndex(FILE *fin, int &tag, bool add=false){
 				break;
 			}
 		}
-		if(add)
-			ret = addWord(word);
-		else
+		int special = tag / 4;
+		tag = tag % 4;
+
+		if(special == 0){
+			if(add)
+				ret = addWord(word);
+			else
+				ret = getWord(word);
+		}else{
 			ret = getWord(word);
+			if(special == 1){ // 1Êý×Ö+·ûºÅ
+				ret.word = 3;
+			}else if(special == 2){ // 2Ó¢Óï+·ûºÅ
+				ret.word = 4;
+			}else if(special == 3){ // 3Êý×ÖÓ¢Óï·ûºÅ»ìºÏ
+				ret.word = 5;
+			}
+		}
 	}
 
 	return ret;
@@ -127,6 +141,9 @@ void init(const char *train_file){
 	chk["</s>"] = 0;
 	chk["unknown"] = 1;
 	chk["padding"] = 2;
+	chk["number"] = 3;
+	chk["letter"] = 4;
+	chk["numletter"] = 5;
 
 	learnVocab(train_file);
 //	for(int i = 0; i < 130000; i++){
@@ -190,8 +207,10 @@ void readAllData(const char *file, const char *dataset, int window_size, data_t 
 			}
 			data[offset + hw] = vec[j].first;
 			b[offset/window_size] = vec[j].second;
-			if(vec[j].first.word == 1)
+			if(vec[j].first.word == 1){
+				//printf("%s\t", vec[j].first.ch);
 				unknown++;
+			}
 		}
 	}
 
