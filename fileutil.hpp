@@ -3,7 +3,7 @@
 #include <vector>
 using namespace std;
 
-#define MAX_STRING 100
+#define MAX_STRING 1000
 
 void readWord(char *word, FILE *fin){
 	int a=0, ch;
