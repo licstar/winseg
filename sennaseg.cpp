@@ -13,7 +13,7 @@
 
 using namespace std;
 
-const int H = 50; //隐藏层
+const int H = 100; //隐藏层
 const int MAX_C = 50; //最大分类数
 const int MAX_F = 1000; //输入层最大的大小
 const char *model_name = "model_300_nosuff_noinit";
@@ -334,6 +334,7 @@ void viterbi(double dp[][4], int *ret, int len){
 }
 
 double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *fname = NULL){
+	int hw = (window_size-1)/2;
 	if(fname){ //测试集，带输出
 		FILE *fout = fopen(fname, "w");
 		correct = 0;
@@ -351,10 +352,10 @@ double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *
 			ret += checkCase(data+s*window_size, b[s], tc, output, dp[index]);
 
 			ans[index] = b[s];
-			chs[index] = (*(data+s*window_size+2)).ch;
+			chs[index] = (*(data+s*window_size+hw)).ch;
 			index++;
 
-			if((*(data+s*window_size+2+1)).word == 2){ //下一个是padding
+			if((*(data+s*window_size+hw+1)).word == 2){ //下一个是padding
 				viterbi(dp, label, index);
 				for(int i = 0; i < index; i++){
 					fprintf(fout, "%s", chs[i]);
@@ -384,7 +385,7 @@ double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *
 			{
 				ret += tv;
 				correct += tc;
-				if((*(data+s*window_size+2)).word == 1){
+				if((*(data+s*window_size+hw)).word == 1){
 					correctU += tc;
 				}
 			}
@@ -534,7 +535,7 @@ int main(int argc, char **argv){
 			checkCase(x, ans, tmp, output, NULL, true);
 
 			if ((i%1000)==0){
-				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
+				//printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 			}
 		}
 		lambda = tlambda;
@@ -549,7 +550,7 @@ int main(int argc, char **argv){
 		//	//	printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 		//	}
 		//}
-		printf("%c", 13);
+		//printf("%c", 13);
 	}
 	return 0;
 }
