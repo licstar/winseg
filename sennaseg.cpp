@@ -334,80 +334,94 @@ void viterbi(double dp[][4], int *ret, int len){
 	
 }
 
-double checkSet(data_t *data, int *b, int N, int &correct, int &correctU, char *fname = NULL){
-	int hw = (window_size-1)/2;
-	if(fname){ //测试集，带输出
-		FILE *fout = fopen(fname, "w");
-		correct = 0;
-		double ret = 0;
+void checkPRF(int *ans, int *opt, int len, int &cntRight, int &cntAnswerWord, int &cntOutputWord){
+	int lans = -1, lopt = -1;
 
-		double dp[2000][4];
-		int label[2000];
-		int ans[2000];
-		char *chs[2000];
-		int index = 0;
-
-		for(int s = 0; s < N; s++){
-			int tc = 0;
-			int output;
-			ret += checkCase(data+s*window_size, b[s], tc, output, dp[index]);
-
-			ans[index] = b[s];
-			chs[index] = (*(data+s*window_size+hw)).ch;
-			index++;
-
-			if((*(data+s*window_size+hw+1)).word == 2){ //下一个是padding
-				viterbi(dp, label, index);
-				for(int i = 0; i < index; i++){
-					fprintf(fout, "%s", chs[i]);
-					if(label[i] == 0 || label[i] == 2){
-						fprintf(fout, " ");
-					}
-					if(ans[i] == label[i])
-						correct++;
-				}
-				fprintf(fout, "\n");
-
-				index = 0;
-			}
+	for (int i = 0; i < len; i++) {
+		int v = 0;
+		if((ans[i] == 0 || ans[i] == 2) && (opt[i] == 0 || opt[i] == 2)){
+			if(lans == lopt)
+				cntRight++;
 		}
-		fclose(fout);
-		return ret;
-	}else{
-		correct = 0;
-		double ret = 0;
-		#pragma omp parallel for schedule(dynamic) num_threads(thread_num)
-		for(int s = 0; s < N; s++){
-			int tc = 0;
-			int output;
-			double tv = checkCase(data+s*window_size, b[s], tc, output);
 
-			#pragma omp critical
-			{
-				ret += tv;
-				correct += tc;
-				if((*(data+s*window_size+hw)).word == 1){
-					correctU += tc;
-				}
-			}
+		if(ans[i] == 0 || ans[i] == 2){
+			lans = i;
+			cntAnswerWord++;
+			v++;
 		}
-		return ret;
+		if(opt[i] == 0 || opt[i] == 2){
+			lopt = i;
+			cntOutputWord++;
+			v++;
+		}
 	}
+	if((opt[len-1] != 0 && opt[len-1] != 2) || 
+		(ans[len-1] != 0 && ans[len-1] != 2)){
+		printf("Error: not end with S/E.\n");
+	}
+}
+
+double checkSet(const char *dataset, data_t *data, int *b, int N, char *fname = NULL){
+	int hw = (window_size-1)/2;
+
+	FILE *fout = NULL;
+	if(fname) fout = fopen(fname, "w");
+
+	double ret = 0;
+	int wordCorrect = 0; //直接的词准确率
+	int viterbiCorrect = 0; //viterbi之后的词准确率
+	int cntRight = 0;
+	int cntAnswerWord = 0;
+	int cntOutputWord = 0;
+
+
+	double dp[2000][4];
+	int label[2000];
+	int ans[2000];
+	char *chs[2000];
+	int index = 0;
+
+	for(int s = 0; s < N; s++){
+		int tc = 0;
+		int output;
+		ret += checkCase(data+s*window_size, b[s], tc, output, dp[index]);
+		wordCorrect += tc;
+
+		ans[index] = b[s];
+		chs[index] = (*(data+s*window_size+hw)).ch;
+		index++;
+
+		if((*(data+s*window_size+hw+1)).word == 2){ //下一个是padding
+			viterbi(dp, label, index);
+			for(int i = 0; i < index; i++){
+				if(fname) fprintf(fout, "%s", chs[i]);
+				if(label[i] == 0 || label[i] == 2){
+					if(fname) fprintf(fout, " ");
+				}
+				if(ans[i] == label[i])
+					viterbiCorrect++;
+			}
+			if(fname) fprintf(fout, "\n");
+
+			checkPRF(ans, label, index, cntRight, cntAnswerWord, cntOutputWord);
+			index = 0;
+		}
+	}
+	if(fname) fclose(fout);
+
+	double P = 1.0 * cntRight / cntOutputWord;
+	double R = 1.0 * cntRight / cntAnswerWord;
+	double F = 2 * P * R / (P + R);
+	printf("%s:%lf(%.2lf%%,%.2lf%%|%.2lf%%,%.2lf%%,%.2lf%%), ", dataset, -ret/N,
+		100.*wordCorrect/N, 100.*viterbiCorrect/N, 100.*P, 100.*R, 100.*F);
+	return -ret/N;
 }
 
 //检查正确率和似然
 //返回值是似然
 double check(){
-	double ret = 0, ev, et;
-	int correct = 0, correctTest = 0, correctValid = 0;
-	int correctU = 0, correctTestU = 0, correctValidU = 0;
+	double ret = 0;
 	char fname[100];
-
-	ret = checkSet(data, b, N, correct, correctU);
-	ev = checkSet(vdata, vb, vN, correctValid, correctValidU);
-
-	sprintf(fname, "%s_%d_output", model_name, iter);
-	et = checkSet(tdata, tb, tN, correctTest, correctTestU, fname);
 
 	double ps = 0;
 	int pnum = 0;
@@ -427,17 +441,19 @@ double check(){
 	writeFile(fname, B, H*input_size);
 	sprintf(fname, "%s_w", model_name);
 	writeFile(fname, words.value, words.size);
-	//特征等要的时候再存
-	//sprintf(fname, "%s_f1", model_name);
-	//writeFile(fname, features[1].value, features[1].size);
 
-	double fret = -ret/N + ps/pnum*lambda/2;
-	printf("train: %lf+%lf, %d/%d(%.2lf%%,%.2lf%%), valid: %lf %d/%d(%.2lf%%,%.2lf%%), test: %lf %d/%d(%.2lf%%,%.2lf%%) time:%.1lf\n",
-		-ret/N, ps/pnum/2, correct, N, 100.*correct/N, 100.*correctU/uN,
-		-ev/vN, correctValid, vN, 100.*correctValid/vN, 100.*correctValidU/uvN,
-		-et/tN, correctTest, tN, 100.*correctTest/tN, 100.*correctTestU/utN,
-		getTime()-time_start);
+
+	printf("para: %lf, ", ps/pnum/2);
+
+	ret = checkSet("train", data, b, N);
+	checkSet("valid", vdata, vb, vN);
+	sprintf(fname, "%s_%d_output", model_name, iter);
+	checkSet("test", tdata, tb, tN, fname);
+
+	printf("time:%.1lf\n", getTime()-time_start);
 	fflush(stdout);
+
+	double fret = ret + ps/pnum*lambda/2;
 	return fret;
 }
 
@@ -478,7 +494,12 @@ void updateWordsExists(){
 }
 
 int main(int argc, char **argv){
-	model_name = argv[0];
+	if(argc < 3){
+		printf("Useage: ./seg w(null) model_name\n");
+		return 0;
+	}
+	model_name = argv[2];
+
 	printf("read data size\n");
 
 	window_size = 5;
@@ -499,7 +520,7 @@ int main(int argc, char **argv){
 
 	printf("init. input(features):%d, hidden:%d, output(classes):%d, alpha:%lf, lambda:%.16lf\n", input_size, H, class_size, alpha, lambda);
 	printf("window_size:%d, vector_size:%d, vocab_size:%d, allwordsLen:%d, lineMax:%d\n", window_size, vector_size, words.element_num, allwordsLen, lineMax);
-	checkWordsExists();
+	//checkWordsExists();
 
 	A = new double[class_size*H];
 	gA = new double[class_size*H];
@@ -516,8 +537,12 @@ int main(int argc, char **argv){
 		words.value[i] = (nextDouble()-0.5);
 	}
 	
-	if(argc >= 2)
-		readFile(argv[1], words.value, words.size);
+	
+	if(readFile(argv[1], words.value, words.size)){
+		printf("initialized with %s\n", argv[1]);
+	}else{
+		printf("not initialized\n");
+	}
 
 	for(int i = 0; i < words.element_num; i++){
 		for(int j = 0; j < words.element_size; j++){
@@ -538,7 +563,7 @@ int main(int argc, char **argv){
 		//计算正确率
 		printf("iter: %d, ", iter);
 		//double LH = check();
-		updateWordsExists();
+		//updateWordsExists();
 		check();
 		iter++;
 		/*if(LH > lastLH){
@@ -567,7 +592,7 @@ int main(int argc, char **argv){
 			checkCase(x, ans, tmp, output, NULL, true);
 
 			if ((i%1000)==0){
-				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
+				//printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 			}
 		}
 		lambda = tlambda;
@@ -582,7 +607,7 @@ int main(int argc, char **argv){
 		//	//	printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 		//	}
 		//}
-		printf("%c", 13);
+		//printf("%c", 13);
 	}
 	return 0;
 }
