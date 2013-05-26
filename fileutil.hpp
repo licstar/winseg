@@ -135,23 +135,29 @@ void learnVocab(const char *train_file){
 	fclose(fi);
 }
 
-void init(const char *train_file){
-	//initWithSenna(); //senna的字典
-	//tokenizer = initTokenizer(); //分词器
-	chk["</s>"] = 0;
+
+void init(const char *dict_file){
+	/*chk["</s>"] = 0;
 	chk["unknown"] = 1;
 	chk["padding"] = 2;
 	chk["number"] = 3;
 	chk["letter"] = 4;
 	chk["numletter"] = 5;
-
-	learnVocab(train_file);
-//	for(int i = 0; i < 130000; i++){
-//		addWord(senna_raw_words[i].str);
-//	}
-	//readalldata的时候，需要存储别的特征，caps和suff
-
+	*/
+	char ch[100];
+	FILE *fin = fopen(dict_file, "r");
+	while(fgets(ch, sizeof(ch), fin)){
+		int len = strlen(ch);
+		while((ch[len-1] == '\r' || ch[len-1] == '\n') && len > 0){
+			ch[len-1] = 0;
+			len--;
+		}
+		len = chk.size();
+		chk[ch] = len;
+	}
+	fclose(fin);
 }
+
 
 int lineMax = 0;
 void readAllData(const char *file, const char *dataset, int window_size, data_t *&data, int *&b, int &N, int &uN){

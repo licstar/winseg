@@ -21,6 +21,7 @@ const char *model_name = "model_300_nosuff_noinit";
 const char *train_file = "train.txt";
 const char *valid_file = "valid.txt";
 const char *test_file = "test.txt";
+const char *dict_file = "dict.txt";
 
 int class_size; //分类数
 int input_size; //特征数，输入层大小 input_size = window_size*vector_size
@@ -440,15 +441,14 @@ double check(){
 	return fret;
 }
 
-/*
-int readFile(const char *name){
+int readFile(const char *name, double *A, int size){
 	FILE *fin = fopen(name, "rb");
 	if(!fin)
 		return 0;
-	fread(A, 1, sizeof(A), fin);
+	int len = (int)fread(A, sizeof(double), size, fin);
 	fclose(fin);
-	return 1;
-}*/
+	return len;
+}
 
 int main(int argc, char **argv){
 	model_name = argv[0];
@@ -459,7 +459,7 @@ int main(int argc, char **argv){
 
 	vector_size = 50;
 
-	init(train_file);
+	init(dict_file);
 
 	words.init(vector_size, chk.size());
 
@@ -488,6 +488,9 @@ int main(int argc, char **argv){
 		words.value[i] = (nextDouble()-0.5);
 	}
 	
+	if(argc >= 2)
+		readFile(argv[1], words.value, words.size);
+
 	for(int i = 0; i < words.element_num; i++){
 		for(int j = 0; j < words.element_size; j++){
 			//words.value[i * words.element_size + j] = senna_raw_words[i].vec[j] / sqrt(12);
