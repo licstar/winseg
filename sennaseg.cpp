@@ -13,7 +13,7 @@
 
 using namespace std;
 
-const int H = 100; //隐藏层
+const int H = 50; //隐藏层
 const int MAX_C = 50; //最大分类数
 const int MAX_F = 1000; //输入层最大的大小
 const char *model_name = "model_300_nosuff_noinit";
@@ -450,6 +450,33 @@ int readFile(const char *name, double *A, int size){
 	return len;
 }
 
+//把训练集中没有出现过的字的词向量，全部替换为unknown
+vector<bool> wordsExists;
+void checkWordsExists(){
+	wordsExists = vector<bool>(words.element_num);
+	for(int i=0, k=0; i < N; i++){
+		for(int j = 0; j < window_size; j++,k++){
+			wordsExists[data[k].word] = true;
+		}
+	}
+	int cnt = 0;
+	for(int i = 0; i < words.element_num; i++){
+		if(wordsExists[i]){
+			cnt++;
+		}
+	}
+	printf("words exists:%d\n", cnt);
+}
+void updateWordsExists(){
+	for(int i = 0; i < words.element_num; i++){
+		if(!wordsExists[i]){
+			for(int j = 0; j < words.element_size; j++){
+				words.value[i*words.element_size+j] = words.value[1*words.element_size+j]; //把词替换成unknown
+			}
+		}
+	}
+}
+
 int main(int argc, char **argv){
 	model_name = argv[0];
 	printf("read data size\n");
@@ -472,6 +499,7 @@ int main(int argc, char **argv){
 
 	printf("init. input(features):%d, hidden:%d, output(classes):%d, alpha:%lf, lambda:%.16lf\n", input_size, H, class_size, alpha, lambda);
 	printf("window_size:%d, vector_size:%d, vocab_size:%d, allwordsLen:%d, lineMax:%d\n", window_size, vector_size, words.element_num, allwordsLen, lineMax);
+	checkWordsExists();
 
 	A = new double[class_size*H];
 	gA = new double[class_size*H];
@@ -510,6 +538,7 @@ int main(int argc, char **argv){
 		//计算正确率
 		printf("iter: %d, ", iter);
 		//double LH = check();
+		updateWordsExists();
 		check();
 		iter++;
 		/*if(LH > lastLH){
@@ -538,7 +567,7 @@ int main(int argc, char **argv){
 			checkCase(x, ans, tmp, output, NULL, true);
 
 			if ((i%1000)==0){
-				//printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
+				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 			}
 		}
 		lambda = tlambda;
@@ -553,7 +582,7 @@ int main(int argc, char **argv){
 		//	//	printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
 		//	}
 		//}
-		//printf("%c", 13);
+		printf("%c", 13);
 	}
 	return 0;
 }
