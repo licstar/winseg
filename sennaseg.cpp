@@ -13,7 +13,7 @@
 
 using namespace std;
 
-const int H = 50; //隐藏层
+const int H = 100; //隐藏层
 const int MAX_C = 50; //最大分类数
 const int MAX_F = 1000; //输入层最大的大小
 const char *model_name = "model_300_nosuff_noinit";
@@ -540,6 +540,21 @@ int main(int argc, char **argv){
 	
 	if(readFile(argv[1], words.value, words.size)){
 		printf("initialized with %s\n", argv[1]);
+		double sum = 0;
+		for(int i = 0; i < words.size; i++){
+			sum += words.value[i]*words.value[i];
+		}
+		sum = sqrt(sum/words.size*12);
+		for(int i = 0; i < words.size; i++){
+			words.value[i] /= sum;
+		}
+		if(argc > 3){
+			double v = atof(argv[3]);
+			printf("x%lf %s\n", v);
+			for(int i = 0; i < words.size; i++){
+				words.value[i] *= v;
+			}
+		}
 	}else{
 		printf("not initialized\n");
 	}
