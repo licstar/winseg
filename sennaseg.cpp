@@ -289,10 +289,9 @@ void viterbi(double dp[][4], int *ret, int len){
 	double *next = rec[1];
 
 	//0S 1B 2E 3M
-	now[0] = vinit[0];
-	now[1] = vinit[1];
-	now[2] = vinit[2];
-	now[3] = vinit[3];
+	for(int i=0;i<4;i++){
+		now[i] = vinit[i]+dp[0][i];
+	}
 
 	for(int i = 1; i < len; i++){
 		next[0] = next[1] = next[2] = next[3] = 0;
@@ -643,12 +642,14 @@ void ProcessSentence(int head, int len){
 			}else{
 				for(int i = 0; i < class_size; i++){
 					ds_d[t][i] = 0;
-					for(int j = 0; j < class_size; j++){
-						double val[4], soft[4];
-						for(int k = 0; k < class_size; k++){
-							val[k] = s_d[t][k] + vtrans[k][j];
-						}
-						softmax(val, soft, 4);
+				}
+				for(int j = 0; j < class_size; j++){
+					double val[45], soft[45];
+					for(int k = 0; k < class_size; k++){
+						val[k] = s_d[t][k] + vtrans[k][j];
+					}
+					softmax(val, soft, 45);
+					for(int i = 0; i < class_size; i++){
 						ds_d[t][i] += ds_d[t+1][j]*soft[i];
 					}
 				}
@@ -657,13 +658,13 @@ void ProcessSentence(int head, int len){
 				ds_f[t][i] += ds_d[t][i];
 			}
 			if(t > 0){
-				for(int i = 0; i < class_size; i++){
-					for(int j = 0; j < class_size; j++){
-						double val[4], soft[4];
-						for(int k = 0; k < 4; k++){
-							val[k] = s_d[t-1][k] + vtrans[k][j];
-						}
-						softmax(val, soft, 4);
+				for(int j = 0; j < class_size; j++){
+					double val[45], soft[45];
+					for(int k = 0; k < 45; k++){
+						val[k] = s_d[t-1][k] + vtrans[k][j];
+					}
+					softmax(val, soft, 45);
+					for(int i = 0; i < class_size; i++){
 						dvtrans[i][j] += ds_d[t][j] * soft[i];
 					}
 				}
@@ -677,7 +678,7 @@ void ProcessSentence(int head, int len){
 		for(int i = 0; i < 4; i++){
 			vinit[i] -= alpha * dvinit[i];
 			for(int j = 0; j < 4; j++){
-				vtrans[i][j] -= alpha/len * dvtrans[i][j];
+				vtrans[i][j] -= alpha * dvtrans[i][j];
 			}
 		}
 		memset(gA, 0, sizeof(double)*class_size*H);
@@ -755,7 +756,7 @@ int main(int argc, char **argv){
 	}
 	for(int i = 0; i < class_size; i++){
 		for(int j = 0; j < class_size; j++){
-			vtrans[i][j] = (nextDouble()-0.5)/100;
+			vtrans[i][j] = (nextDouble()-0.5);
 		}
 		vinit[i] = (nextDouble()-0.5);
 	}
@@ -826,10 +827,10 @@ int main(int argc, char **argv){
 		//updateWordsExists();
 		//check();
 		iter++;
-		if(LH > lastLH){
+		/*if(LH > lastLH){
 			alpha *= 0.5;
 			printf("alpha*=0.5\n");
-		}
+		}*/
 		lastLH = LH;
 
 
@@ -857,7 +858,7 @@ int main(int argc, char **argv){
 			}*/
 			cnt += sentence.second;
 			if (cnt/1000 != (cnt-sentence.second)/1000){
-			printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*cnt/N, cnt/(getTime()-lastTime));
+			//printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*cnt/N, cnt/(getTime()-lastTime));
 			}
 		}
 
@@ -868,7 +869,7 @@ int main(int argc, char **argv){
 			printf("%f\n", vinit[i]);
 		}
 		lambda = tlambda;
-		printf("%c", 13);
+		//printf("%c", 13);
 	}
 	return 0;
 }
