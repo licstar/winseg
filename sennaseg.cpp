@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sstream>
 #include <omp.h>
-#ifdef LINUX
+#ifdef __linux__
 #include <sys/time.h>
 #else
 #include <time.h>
@@ -88,12 +88,12 @@ const int thread_num = 4;
 const int patch_size = thread_num;
 
 double getTime(){
-#ifdef LINUX
+#ifdef __linux__
 	timeval tv;
 	gettimeofday(&tv, 0);
 	return tv.tv_sec + tv.tv_usec * 1e-6;
 #else
-	return 0;
+	return 1.*clock()/CLOCKS_PER_SEC;
 #endif
 }
 
@@ -453,7 +453,7 @@ double check(){
 	printf("para: %lf, ", ps/pnum/2);
 
 	ret = checkSet("train", data, b, N);
-	checkSet("valid", vdata, vb, vN);
+	double ret2 = checkSet("valid", vdata, vb, vN);
 	sprintf(fname, "%s_%d_output", model_name, iter);
 	checkSet("test", tdata, tb, tN, fname);
 
@@ -461,7 +461,7 @@ double check(){
 	fflush(stdout);
 
 	double fret = ret + ps/pnum*lambda/2;
-	return fret;
+	return ret2;//fret;
 }
 
 int readFile(const char *name, double *A, int size){
@@ -601,108 +601,113 @@ double getVal2(int head, int len){
 
 void ProcessSentence(int head, int len){
 
-	double dvtrans[4][4];
-	memset(dvtrans, 0, sizeof(dvtrans));
-	double dvinit[4] = {0};
-
-	for(int s = head; s < head+len; s++){
-		int t = s-head;
-		data_t *x = data+s*window_size;
-		int ans = b[s];
-		int tc;
-		ForwardCase(x, ans, s_f[t], s_h[t], s_x[t], tc);
-		if(t == 0){
-			for(int k = 0; k < class_size; k++){
-				s_d[t][k] = vinit[k] + s_f[t][k];
+	//int step = 3+rand()%7;
+	int step = len;
+	//alpha = min(0.01, 1.0/len);
+	for(int shead = head; shead < head+len; shead+=step){
+		int slen = min(step, head+len-shead);
+		double dvtrans[4][4];
+		memset(dvtrans, 0, sizeof(dvtrans));
+		double dvinit[4] = {0};
+		for(int s = shead; s < shead+slen; s++){
+			int t = s-head;
+			data_t *x = data+s*window_size;
+			int ans = b[s];
+			int tc;
+			ForwardCase(x, ans, s_f[t], s_h[t], s_x[t], tc);
+			if(t == 0){
+				for(int k = 0; k < class_size; k++){
+					s_d[t][k] = vinit[k] + s_f[t][k];
+				}
+				dvinit[ans]--;
+			}else{
+				for(int k = 0; k < class_size; k++){
+					double vals[4];
+					for(int i = 0; i < class_size; i++){
+						vals[i] = s_d[t-1][i] + vtrans[i][k];
+					}
+					s_d[t][k] = s_f[t][k] + logadd(vals, class_size);
+				}
+				dvtrans[b[s-1]][ans]--;
 			}
-			dvinit[ans]--;
-		}else{
-			for(int k = 0; k < class_size; k++){
-				double vals[4];
+			for(int i = 0; i < class_size; i++){
+				ds_f[t][i] = 0;
+			}
+			ds_f[t][ans]--;
+		}
+
+		for(int s = shead+slen-1; s >= shead; s--){
+			int t = s-head;
+			if(s == shead+slen-1){
+				softmax(s_d[t], ds_d[t], 4); //TODO 一会考虑一下这个怎么解决
+			}else{
 				for(int i = 0; i < class_size; i++){
-					vals[i] = s_d[t-1][i] + vtrans[i][k];
-				}
-				s_d[t][k] = s_f[t][k] + logadd(vals, class_size);
-			}
-			dvtrans[b[s-1]][ans]--;
-		}
-		for(int i = 0; i < class_size; i++){
-			ds_f[t][i] = 0;
-		}
-		ds_f[t][ans]--;
-	}
-	for(int s = head+len-1; s >= head; s--){
-		int t = s-head;
-		if(s == head+len-1){
-			softmax(s_d[t], ds_d[t], 4);
-		}else{
-			for(int i = 0; i < class_size; i++){
-				ds_d[t][i] = 0;
-				for(int j = 0; j < class_size; j++){
-					double val[4], soft[4];
-					for(int k = 0; k < class_size; k++){
-						val[k] = s_d[t][k] + vtrans[k][j];
+					ds_d[t][i] = 0;
+					for(int j = 0; j < class_size; j++){
+						double val[4], soft[4];
+						for(int k = 0; k < class_size; k++){
+							val[k] = s_d[t][k] + vtrans[k][j];
+						}
+						softmax(val, soft, 4);
+						ds_d[t][i] += ds_d[t+1][j]*soft[i];
 					}
-					softmax(val, soft, 4);
-					ds_d[t][i] += ds_d[t+1][j]*soft[i];
 				}
 			}
-		}
-		for(int i = 0; i < class_size; i++){
-			ds_f[t][i] += ds_d[t][i];
-		}
-		if(t > 0){
 			for(int i = 0; i < class_size; i++){
-				for(int j = 0; j < class_size; j++){
-					double val[4], soft[4];
-					for(int k = 0; k < 4; k++){
-						val[k] = s_d[t-1][k] + vtrans[k][j];
+				ds_f[t][i] += ds_d[t][i];
+			}
+			if(t > 0){
+				for(int i = 0; i < class_size; i++){
+					for(int j = 0; j < class_size; j++){
+						double val[4], soft[4];
+						for(int k = 0; k < 4; k++){
+							val[k] = s_d[t-1][k] + vtrans[k][j];
+						}
+						softmax(val, soft, 4);
+						dvtrans[i][j] += ds_d[t][j] * soft[i];
 					}
-					softmax(val, soft, 4);
-					dvtrans[i][j] += ds_d[t][j] * soft[i];
+				}
+			}else{ //t==0
+				for(int j = 0; j < class_size; j++){
+					dvinit[j] += ds_d[t][j];
 				}
 			}
-		}else{ //t==0
-			for(int j = 0; j < class_size; j++){
-				dvinit[j] += ds_d[t][j];
+		}
+		
+		for(int i = 0; i < 4; i++){
+			vinit[i] -= alpha * dvinit[i];
+			for(int j = 0; j < 4; j++){
+				vtrans[i][j] -= alpha/len * dvtrans[i][j];
+			}
+		}
+		memset(gA, 0, sizeof(double)*class_size*H);
+		memset(gB, 0, sizeof(double)*H*input_size);
+
+		for(int s = shead; s < shead+slen; s++){
+			int t = s-head;
+			data_t *x = data+s*window_size;
+			int ans = b[s];
+			for(int i = 0; i < class_size; i++)
+				ds_f[t][i] = -ds_f[t][i];
+			BackwardCase(x, ans, s_f[t], s_h[t], s_x[t], ds_f[t]);
+		}
+		//printf("#%lf\n", (tttv-words.value[2*50])/alpha);
+
+		for(int i = 0; i < class_size; i++){
+			for(int j = 0; j < H; j++){
+				int t = i*H+j;
+				A[t] += alpha/sqrt(H) * (gA[t] - lambda * A[t]);
+			}
+		}
+
+		for(int i = 0; i < H; i++){
+			for(int j = 0; j < input_size; j++){
+				int t = i*input_size+j;
+				B[t] += alpha/sqrt(input_size) * (gB[t] - lambda * B[t]);
 			}
 		}
 	}
-	for(int i = 0; i < 4; i++){
-		vinit[i] -= alpha * dvinit[i];
-		for(int j = 0; j < 4; j++){
-			vtrans[i][j] -= alpha * dvtrans[i][j];
-			//printf("%lf\t", vtrans[i][j]);
-		}
-		//printf("%lf\n", vinit[i]);
-	}
-	memset(gA, 0, sizeof(double)*class_size*H);
-	memset(gB, 0, sizeof(double)*H*input_size);
 
-	//double tttv = words.value[2*50];
-	for(int s = head; s < head+len; s++){
-		int t = s-head;
-		data_t *x = data+s*window_size;
-		int ans = b[s];
-		for(int i = 0; i < class_size; i++)
-			ds_f[t][i] = -ds_f[t][i];
-		BackwardCase(x, ans, s_f[t], s_h[t], s_x[t], ds_f[t]);
-	}
-	//printf("#%lf\n", (tttv-words.value[2*50])/alpha);
-
-	for(int i = 0; i < class_size; i++){
-		for(int j = 0; j < H; j++){
-			int t = i*H+j;
-			A[t] += alpha/sqrt(H) * (gA[t] - lambda * A[t]);
-		}
-	}
-
-	for(int i = 0; i < H; i++){
-		for(int j = 0; j < input_size; j++){
-			int t = i*input_size+j;
-			B[t] += alpha/sqrt(input_size) * (gB[t] - lambda * B[t]);
-		}
-	}
 }
 
 int main(int argc, char **argv){
@@ -750,7 +755,7 @@ int main(int argc, char **argv){
 	}
 	for(int i = 0; i < class_size; i++){
 		for(int j = 0; j < class_size; j++){
-			vtrans[i][j] = (nextDouble()-0.5);
+			vtrans[i][j] = (nextDouble()-0.5)/100;
 		}
 		vinit[i] = (nextDouble()-0.5);
 	}
@@ -813,18 +818,19 @@ int main(int argc, char **argv){
 		order[i] = i;
 	}
 
-	//double lastLH = 1e100;
+	double lastLH = 1e100;
 	while(1){
 		//计算正确率
 		printf("iter: %d, ", iter);
-		//double LH = check();
+		double LH = check();
 		//updateWordsExists();
-		check();
+		//check();
 		iter++;
-		/*if(LH > lastLH){
-			alpha = 0.0001;
+		if(LH > lastLH){
+			alpha *= 0.5;
+			printf("alpha*=0.5\n");
 		}
-		lastLH = LH;*/
+		lastLH = LH;
 
 
 		double lastTime = getTime();
@@ -842,10 +848,24 @@ int main(int argc, char **argv){
 			
 			pair<int, int> &sentence = sentences[s];
 			ProcessSentence(sentence.first, sentence.second);
+			/*int st = sentence.first;
+			int len = sentence.second;
+			while(len > 0){
+				ProcessSentence(st, min(6, len));
+				len -= 6;
+				st += 6;
+			}*/
 			cnt += sentence.second;
 			if (cnt/1000 != (cnt-sentence.second)/1000){
-				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*cnt/N, cnt/(getTime()-lastTime));
+			printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*cnt/N, cnt/(getTime()-lastTime));
 			}
+		}
+
+		for(int i = 0; i < 4; i++){
+			for(int j = 0; j < 4; j++){
+				printf("%f\t", vtrans[i][j]);
+			}
+			printf("%f\n", vinit[i]);
 		}
 		lambda = tlambda;
 		printf("%c", 13);
