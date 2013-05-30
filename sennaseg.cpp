@@ -644,11 +644,11 @@ void ProcessSentence(int head, int len){
 					ds_d[t][i] = 0;
 				}
 				for(int j = 0; j < class_size; j++){
-					double val[45], soft[45];
+					double val[4], soft[4];
 					for(int k = 0; k < class_size; k++){
 						val[k] = s_d[t][k] + vtrans[k][j];
 					}
-					softmax(val, soft, 45);
+					softmax(val, soft, class_size);
 					for(int i = 0; i < class_size; i++){
 						ds_d[t][i] += ds_d[t+1][j]*soft[i];
 					}
@@ -659,11 +659,11 @@ void ProcessSentence(int head, int len){
 			}
 			if(t > 0){
 				for(int j = 0; j < class_size; j++){
-					double val[45], soft[45];
-					for(int k = 0; k < 45; k++){
+					double val[4], soft[4];
+					for(int k = 0; k < class_size; k++){
 						val[k] = s_d[t-1][k] + vtrans[k][j];
 					}
-					softmax(val, soft, 45);
+					softmax(val, soft, class_size);
 					for(int i = 0; i < class_size; i++){
 						dvtrans[i][j] += ds_d[t][j] * soft[i];
 					}
