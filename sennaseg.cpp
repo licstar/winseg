@@ -13,7 +13,7 @@
 
 using namespace std;
 
-const int H = 100; //隐藏层
+const int H = 50; //隐藏层
 const int MAX_C = 50; //最大分类数
 const int MAX_F = 1000; //输入层最大的大小
 const char *model_name = "model_300_nosuff_noinit";
@@ -48,6 +48,9 @@ embedding_t words; //词向量
 double *A; //特征矩阵：[分类数][隐藏层] 第二层的权重
 double *B; //特征矩阵：[隐藏层][特征数] 第一层的权重
 double *gA, *gB;
+
+double vtrans[4][4];
+double vinit[4];
 
 //===================== 已知数据 =====================
 struct data_t{
@@ -109,6 +112,19 @@ void softmax(double hoSums[], double result[], int n){
 		result[i] = exp(hoSums[i] - max) / scale;
 }
 
+double logadd(double *v, int len){
+	double ret = 0;
+	double maxi = 0;
+	for(int i = 0; i < len; i++){
+		if(v[i] > maxi)
+			maxi = v[i];
+	}
+	for(int i = 0; i < len; i++){
+		ret += exp(v[i]-maxi);
+	}
+	return log(ret)+maxi;
+}
+
 double sigmoid(double x){
 	return 1 / (1 + exp(-x));
 }
@@ -166,8 +182,8 @@ void fastmult(double *A, double *x, double *b, int xlen, int blen){
 	}
 }
 
-double checkCase(data_t *id, int ans, int &correct, int &output, double *p=NULL, bool gd = false){
-	double x[MAX_F];
+//前向推导
+double ForwardCase(data_t *id, int ans, double *f, double *_h, double *x, int &correct){
 	for(int i = 0, j = 0; i < window_size; i++){
 		int offset = id[i].word * words.element_size;
 		for(int k = 0; k < words.element_size; k++,j++){
@@ -178,109 +194,76 @@ double checkCase(data_t *id, int ans, int &correct, int &output, double *p=NULL,
 	double h[H] = {0};
 	fastmult(B, x, h, input_size, H);
 	for(int i = 0; i < H; i++){
-		//h[i] = sigmoid(h[i]);
 		h[i] = tanh(h[i]);
-		//h[i] = hardtanh(h[i]+biasH[i]);
-		//if(h[i] > 1) h[i] = 1;
-		//if(h[i] < -1) h[i] = -1;
 	}
-	//for(int i = 0, k=0; i < H; i++){
-	//	for(int j = 0; j < input_size; j++,k++){
-	//		//h[i] += x[j] * B[i*input_size+j];
-	//		h[i] += x[j] * B[k];
-	//	}
-	//	h[i] = sigmoid(h[i]);
-	//}
 
-	double r[MAX_C] = {0};
+	double y[MAX_C] = {0};
 	for(int i = 0; i < class_size; i++){
-		//r[i] = biasOutput[i];
 		for(int j = 0; j < H; j++){
-			r[i] += h[j] * A[i*H+j];
-		}
-	}
-	double y[MAX_C];
-	softmax(r, y, class_size);
-
-	if(gd){ //修改参数
-		/*for(int i = 0; i < class_size; i++){
-			if(i == ans){
-				biasOutput[i] += alpha*(1-y[i]);
-			}else{
-				biasOutput[i] += alpha*(0-y[i]);
-			}
-		}*/
-
-		double dh[H] = {0};
-		for(int j = 0; j < H; j++){
-			dh[j] = A[ans*H+j];
-			for(int i = 0; i < class_size; i++){
-				dh[j] -= y[i]*A[i*H+j];
-			}
-			//dh[j] *= h[j]*(1-h[j]);
-			dh[j] *= 1-h[j]*h[j];
-			/*if(h[j] > 1 || h[j] < -1)
-				dh[j] = 0;
-			biasH[j] += alpha * dh[j];*/
-		}
-
-		//#pragma omp critical
-		{
-			for(int i = 0; i < class_size; i++){
-				double v = (i==ans?1:0) - y[i];
-				for(int j = 0; j < H; j++){
-					int t = i*H+j;
-					A[t] += alpha/sqrt(H) * (v * h[j] - lambda * A[t]);
-					//gA[i*H+j] += v * h[j];
-				}
-			}
-
-			double dx[MAX_F] = {0};
-
-			//fastmult(B, dh, dx, input_size, H);
-			for(int i = 0; i < H; i++){
-				for(int j = 0; j < input_size; j++){
-					dx[j] += dh[i] * B[i*input_size+j];
-				}
-			}
-
-			for(int i = 0; i < H; i++){
-				for(int j = 0; j < input_size; j++){
-					int t = i*input_size+j;
-					B[t] += alpha/sqrt(input_size) * (x[j] * dh[i] - lambda * B[t]);
-					//gB[i*input_size+j] += -x[j] * dh[i];
-				}
-			}
-
-
-			for(int i = 0, j = 0; i < window_size; i++){
-				int offset = id[i].word * words.element_size;
-				for(int k = 0; k < words.element_size; k++,j++){
-					int t = offset + k;
-					words.value[t] += alpha * (dx[j] - lambda * words.value[t]);
-				}
-			}
-
+			y[i] += h[j] * A[i*H+j];
 		}
 	}
 
-	output = 0;
-	double maxi = 0;
 	bool ok = true;
 	for(int i = 0; i < class_size; i++){
 		if(i != ans && y[i] >= y[ans])
 			ok = false;
-		if(y[i] > maxi){
-			maxi = y[i];
-			output = i;
-		}
-		if(p)
-			p[i] = -log(y[i]);
+		f[i] = y[i];
 	}
-
+	if(_h){
+		for(int i = 0; i < H; i++){
+			_h[i] = h[i];
+		}
+	}
 	if(ok)
 		correct++;
-	return log(y[ans]); //计算似然
+	return y[ans]; //计算似然
+}
+
+//逆向推导
+void BackwardCase(data_t *id, int ans, double *y, double *h, double *x, double *dy){
+	double dh[H] = {0};
+	for(int j = 0; j < H; j++){
+		for(int i = 0; i < class_size; i++){
+			dh[j] += dy[i]*A[i*H+j];
+		}
+		dh[j] *= 1-h[j]*h[j];
+	}
+
+	for(int i = 0; i < class_size; i++){
+		for(int j = 0; j < H; j++){
+			int t = i*H+j;
+			//A[t] += alpha/sqrt(H) * (dy[i] * h[j] - lambda * A[t]);
+			gA[t] += dy[i] * h[j];
+		}
+	}
+
+	double dx[MAX_F] = {0};
+
+	//fastmult(B, dh, dx, input_size, H);
+	for(int i = 0; i < H; i++){
+		for(int j = 0; j < input_size; j++){
+			dx[j] += dh[i] * B[i*input_size+j];
+		}
+	}
+
+	for(int i = 0; i < H; i++){
+		for(int j = 0; j < input_size; j++){
+			int t = i*input_size+j;
+			//B[t] += alpha/sqrt(input_size) * (x[j] * dh[i] - lambda * B[t]);
+			gB[t] += x[j] * dh[i];
+		}
+	}
+
+
+	for(int i = 0, j = 0; i < window_size; i++){
+		int offset = id[i].word * words.element_size;
+		for(int k = 0; k < words.element_size; k++,j++){
+			int t = offset + k;
+			words.value[t] += alpha * (dx[j] - lambda * words.value[t]);
+		}
+	}
+
 }
 
 
@@ -306,18 +289,18 @@ void viterbi(double dp[][4], int *ret, int len){
 	double *next = rec[1];
 
 	//0S 1B 2E 3M
-	now[0] = dp[0][0];
-	now[1] = dp[0][1];
-	now[2] = inf;
-	now[3] = inf;
+	now[0] = vinit[0];
+	now[1] = vinit[1];
+	now[2] = vinit[2];
+	now[3] = vinit[3];
 
 	for(int i = 1; i < len; i++){
-		next[0] = next[1] = next[2] = next[3] = inf;
+		next[0] = next[1] = next[2] = next[3] = 0;
 		for(int j = 0; j < 4; j++){ //上一个节点
 			double v = now[j];
 			for(int k = 0; k < 4; k++){ //当前节点
-				if(next[k] > v + viterbi_trans[j][k] + dp[i][k]){
-					next[k] = v + viterbi_trans[j][k] + dp[i][k];
+				if(next[k] < v + vtrans[j][k] + dp[i][k]){
+					next[k] = v + vtrans[j][k] + dp[i][k];
 					back[i][k] = j;
 				}
 			}
@@ -380,15 +363,38 @@ double checkSet(const char *dataset, data_t *data, int *b, int N, char *fname = 
 	int ans[2000];
 	char *chs[2000];
 	int index = 0;
-
+	double lscore = 0;
+	int scnt = 0;
+	double s_d[2][4];
+	double *sd_now = s_d[0];
+	double *sd_next = s_d[1];
+	double xx[MAX_F];
 	for(int s = 0; s < N; s++){
 		int tc = 0;
-		int output;
-		ret += checkCase(data+s*window_size, b[s], tc, output, dp[index]);
+		double tsc;
+		tsc = ForwardCase(data+s*window_size, b[s], dp[index], NULL, xx, tc);
 		wordCorrect += tc;
 
 		ans[index] = b[s];
 		chs[index] = (*(data+s*window_size+hw)).ch;
+
+		if((*(data+s*window_size+hw-1)).word == 2){ //刚开始
+			lscore = vinit[b[s]] + tsc;
+			for(int k = 0; k < class_size; k++){
+				sd_next[k] = vinit[k] + dp[index][k];
+			}
+		}else{
+			lscore += vtrans[b[s-1]][b[s]] + tsc;
+			for(int k = 0; k < class_size; k++){
+				double vals[4];
+				for(int i = 0; i < class_size; i++){
+					vals[i] = sd_now[i] + vtrans[i][k];
+				}
+				sd_next[k] = dp[index][k] + logadd(vals, class_size);
+			}
+		}
+		swap(sd_next, sd_now);
+
 		index++;
 
 		if((*(data+s*window_size+hw+1)).word == 2){ //下一个是padding
@@ -402,7 +408,8 @@ double checkSet(const char *dataset, data_t *data, int *b, int N, char *fname = 
 					viterbiCorrect++;
 			}
 			if(fname) fprintf(fout, "\n");
-
+			ret += lscore - logadd(sd_now, 4);
+			scnt++;
 			checkPRF(ans, label, index, cntRight, cntAnswerWord, cntOutputWord);
 			index = 0;
 		}
@@ -412,9 +419,9 @@ double checkSet(const char *dataset, data_t *data, int *b, int N, char *fname = 
 	double P = 1.0 * cntRight / cntOutputWord;
 	double R = 1.0 * cntRight / cntAnswerWord;
 	double F = 2 * P * R / (P + R);
-	printf("%s:%lf(%.2lf%%,%.2lf%%|%.2lf%%,%.2lf%%,%.2lf%%), ", dataset, -ret/N,
+	printf("%s:%lf(%.2lf%%,%.2lf%%|%.2lf%%,%.2lf%%,%.2lf%%), ", dataset, -ret/scnt,
 		100.*wordCorrect/N, 100.*viterbiCorrect/N, 100.*P, 100.*R, 100.*F);
-	return -ret/N;
+	return -ret/scnt;
 }
 
 //检查正确率和似然
@@ -493,6 +500,211 @@ void updateWordsExists(){
 	}
 }
 
+vector<pair<int, int> > getSentences(){
+	vector<pair<int, int> > sentences;
+	int head = 0;
+	int hw = (window_size-1)/2;
+	for(int s = 0; s < N; s++){
+		if((*(data+s*window_size+hw+1)).word == 2){ //下一个是padding
+			sentences.push_back(make_pair(head,s+1-head));
+			head = s+1;
+		}
+	}
+	sentences.push_back(make_pair(head,N-head));
+	return sentences;
+}
+
+double s_f[2000][4];
+double ds_f[2000][4];
+double s_h[2000][H];
+double s_x[2000][MAX_F];
+double s_d[2000][4];
+double ds_d[2000][4];
+
+
+double getVal(int head, int len){
+	int hw = (window_size-1)/2;
+	double ret = 0;
+	double f[4];
+	int index = 0;
+	double lscore = 0;
+	double s_d[2][4];
+	double *sd_now = s_d[0];
+	double *sd_next = s_d[1];
+	double xx[MAX_F];
+	for(int s = head; s < len; s++){
+		int tc = 0;
+		double tsc;
+		tsc = ForwardCase(data+s*window_size, b[s], f, NULL, xx, tc);
+
+		if((*(data+s*window_size+hw-1)).word == 2){ //刚开始
+			lscore = vinit[b[s]] + tsc;
+			for(int k = 0; k < class_size; k++){
+				sd_next[k] = vinit[k] + f[k];
+			}
+		}else{
+			lscore += vtrans[b[s-1]][b[s]] + tsc;
+			for(int k = 0; k < class_size; k++){
+				double vals[4];
+				for(int i = 0; i < class_size; i++){
+					vals[i] = sd_now[i] + vtrans[i][k];
+				}
+				sd_next[k] = f[k] + logadd(vals, class_size);
+			}
+		}
+		swap(sd_next, sd_now);
+
+		index++;
+	}
+	ret += lscore - logadd(sd_now, 4);
+	return -ret;
+}
+
+double dfsval[20000];
+int dfscnt = 0;
+int dfsans = 0;
+void dfs(int depth, int len, double f[][4], int *ans, double val, int lastp, bool ok){
+	if(depth == len){
+		dfsval[dfscnt] = val;
+		if(ok){
+			dfsans = dfscnt;
+		}
+		dfscnt++;
+		return;
+	}
+	if(depth == 0){
+		for(int i =0 ;i<4;i++){
+			dfs(depth+1, len, f,ans, vinit[i]+f[depth][i], i, ok&&(i==ans[depth]) );
+		}
+	}else{
+		for(int i =0 ;i<4;i++){
+			dfs(depth+1, len, f,ans, val+vtrans[lastp][i]+f[depth][i], i, ok&&(i==ans[depth]));
+		}
+	}
+}
+
+double getVal2(int head, int len){
+	double f[100][4];
+	int index = 0;
+	double xx[MAX_F];
+	for(int s = head; s < len; s++){
+		int tc = 0;
+		double tsc;
+		tsc = ForwardCase(data+s*window_size, b[s], f[index], NULL, xx, tc);
+		index++;
+	}
+	dfscnt = 0;
+	dfs(0, len, f, b+head, 0, 0, true);
+	softmax(dfsval, dfsval, dfscnt);
+	return -log(dfsval[dfsans]);
+}
+
+void ProcessSentence(int head, int len){
+
+	double dvtrans[4][4];
+	memset(dvtrans, 0, sizeof(dvtrans));
+	double dvinit[4] = {0};
+
+	for(int s = head; s < head+len; s++){
+		int t = s-head;
+		data_t *x = data+s*window_size;
+		int ans = b[s];
+		int tc;
+		ForwardCase(x, ans, s_f[t], s_h[t], s_x[t], tc);
+		if(t == 0){
+			for(int k = 0; k < class_size; k++){
+				s_d[t][k] = vinit[k] + s_f[t][k];
+			}
+			dvinit[ans]--;
+		}else{
+			for(int k = 0; k < class_size; k++){
+				double vals[4];
+				for(int i = 0; i < class_size; i++){
+					vals[i] = s_d[t-1][i] + vtrans[i][k];
+				}
+				s_d[t][k] = s_f[t][k] + logadd(vals, class_size);
+			}
+			dvtrans[b[s-1]][ans]--;
+		}
+		for(int i = 0; i < class_size; i++){
+			ds_f[t][i] = 0;
+		}
+		ds_f[t][ans]--;
+	}
+	for(int s = head+len-1; s >= head; s--){
+		int t = s-head;
+		if(s == head+len-1){
+			softmax(s_d[t], ds_d[t], 4);
+		}else{
+			for(int i = 0; i < class_size; i++){
+				ds_d[t][i] = 0;
+				for(int j = 0; j < class_size; j++){
+					double val[4], soft[4];
+					for(int k = 0; k < class_size; k++){
+						val[k] = s_d[t][k] + vtrans[k][j];
+					}
+					softmax(val, soft, 4);
+					ds_d[t][i] += ds_d[t+1][j]*soft[i];
+				}
+			}
+		}
+		for(int i = 0; i < class_size; i++){
+			ds_f[t][i] += ds_d[t][i];
+		}
+		if(t > 0){
+			for(int i = 0; i < class_size; i++){
+				for(int j = 0; j < class_size; j++){
+					double val[4], soft[4];
+					for(int k = 0; k < 4; k++){
+						val[k] = s_d[t-1][k] + vtrans[k][j];
+					}
+					softmax(val, soft, 4);
+					dvtrans[i][j] += ds_d[t][j] * soft[i];
+				}
+			}
+		}else{ //t==0
+			for(int j = 0; j < class_size; j++){
+				dvinit[j] += ds_d[t][j];
+			}
+		}
+	}
+	for(int i = 0; i < 4; i++){
+		vinit[i] -= alpha * dvinit[i];
+		for(int j = 0; j < 4; j++){
+			vtrans[i][j] -= alpha * dvtrans[i][j];
+			//printf("%lf\t", vtrans[i][j]);
+		}
+		//printf("%lf\n", vinit[i]);
+	}
+	memset(gA, 0, sizeof(double)*class_size*H);
+	memset(gB, 0, sizeof(double)*H*input_size);
+
+	//double tttv = words.value[2*50];
+	for(int s = head; s < head+len; s++){
+		int t = s-head;
+		data_t *x = data+s*window_size;
+		int ans = b[s];
+		for(int i = 0; i < class_size; i++)
+			ds_f[t][i] = -ds_f[t][i];
+		BackwardCase(x, ans, s_f[t], s_h[t], s_x[t], ds_f[t]);
+	}
+	//printf("#%lf\n", (tttv-words.value[2*50])/alpha);
+
+	for(int i = 0; i < class_size; i++){
+		for(int j = 0; j < H; j++){
+			int t = i*H+j;
+			A[t] += alpha/sqrt(H) * (gA[t] - lambda * A[t]);
+		}
+	}
+
+	for(int i = 0; i < H; i++){
+		for(int j = 0; j < input_size; j++){
+			int t = i*input_size+j;
+			B[t] += alpha/sqrt(input_size) * (gB[t] - lambda * B[t]);
+		}
+	}
+}
+
 int main(int argc, char **argv){
 	if(argc < 3){
 		printf("Useage: ./seg w(null) model_name\n");
@@ -536,6 +748,12 @@ int main(int argc, char **argv){
 	for(int i = 0; i < words.size; i++){
 		words.value[i] = (nextDouble()-0.5);
 	}
+	for(int i = 0; i < class_size; i++){
+		for(int j = 0; j < class_size; j++){
+			vtrans[i][j] = (nextDouble()-0.5);
+		}
+		vinit[i] = (nextDouble()-0.5);
+	}
 	
 	
 	if(readFile(argv[1], words.value, words.size)){
@@ -550,7 +768,7 @@ int main(int argc, char **argv){
 		}
 		if(argc > 3){
 			double v = atof(argv[3]);
-			printf("x%lf %s\n", v);
+			printf("x%lf\n", v);
 			for(int i = 0; i < words.size; i++){
 				words.value[i] *= v;
 			}
@@ -568,8 +786,30 @@ int main(int argc, char **argv){
 
 	time_start = getTime();
 
-	int *order = new int[N];
-	for(int i = 0; i < N; i++){
+	//训练数据集的句子 <句子起始坐标, 句子长度>
+	vector<pair<int, int> > sentences = getSentences();
+	//sentences[0].second = 6;
+	/*double vx = getVal(sentences[0].first, sentences[0].second);
+	printf("vx1=%lf\n", vx);
+	//double vx2 = getVal2(sentences[0].first, sentences[0].second);
+	//printf("vx2=%lf\n", vx2);
+
+	for(double delta = 1; delta > 1e-8; delta*=0.1){
+		//vtrans[1][2]+=delta;
+		//B[197] +=delta;
+		words.value[2*50]+=delta;
+		//vinit[1]+=delta;
+		double vv = getVal(sentences[0].first, sentences[0].second);
+		printf("%.10lf %lf\n", delta, (vv-vx)/delta);
+		//vinit[1]-=delta;
+		words.value[2*50]-=delta;
+		//B[197] -=delta;
+		//vtrans[1][2]-=delta;
+	}
+	ProcessSentence(sentences[0].first, sentences[0].second);*/
+
+	int *order = new int[sentences.size()];
+	for(int i = 0; i < (int)sentences.size(); i++){
 		order[i] = i;
 	}
 
@@ -588,41 +828,27 @@ int main(int argc, char **argv){
 
 
 		double lastTime = getTime();
-		//memset(gA, 0, sizeof(double)*class_size*H);
-		//memset(gB, 0, sizeof(double)*H*input_size);
 
-		for(int i = 0; i < N; i++){
-			swap(order[i], order[rand()%N]);
+		for(int i = 0; i < (int)sentences.size(); i++){
+			swap(order[i], order[rand()%sentences.size()]);
 		}
 		double tlambda = lambda;
-		for(int i = 0; i < N; i++){
+		int cnt = 0;
+		for(int i = 0; i < (int)sentences.size(); i++){
 			lambda = 0;
 			if(i % 10 == 0)
 				lambda = tlambda;
 			int s = order[i];
-			data_t *x = data+s*window_size;
-			int ans = b[s];
-
-			int tmp, output;
-			checkCase(x, ans, tmp, output, NULL, true);
-
-			if ((i%1000)==0){
-				//printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
+			
+			pair<int, int> &sentence = sentences[s];
+			ProcessSentence(sentence.first, sentence.second);
+			cnt += sentence.second;
+			if (cnt/1000 != (cnt-sentence.second)/1000){
+				printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*cnt/N, cnt/(getTime()-lastTime));
 			}
 		}
 		lambda = tlambda;
-		//for(int i = 0; i < vN; i++){
-		//	int s = i;
-		//	data_t *x = vdata + s * window_size;
-		//	int ans = vb[s];
-		//	int tmp;
-		//	checkCase(x, ans, tmp, true);
-
-		//	if ((i%100)==0){
-		//	//	printf("%cIter: %3d\t   Progress: %.2f%%   Words/sec: %.1f ", 13, iter, 100.*i/N, i/(getTime()-lastTime));
-		//	}
-		//}
-		//printf("%c", 13);
+		printf("%c", 13);
 	}
 	return 0;
 }
