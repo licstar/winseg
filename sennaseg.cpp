@@ -678,7 +678,7 @@ void ProcessSentence(int head, int len){
 		for(int i = 0; i < 4; i++){
 			vinit[i] -= alpha * dvinit[i];
 			for(int j = 0; j < 4; j++){
-				vtrans[i][j] -= alpha * dvtrans[i][j];
+				vtrans[i][j] -= alpha/100 * dvtrans[i][j];
 			}
 		}
 		memset(gA, 0, sizeof(double)*class_size*H);
@@ -756,7 +756,7 @@ int main(int argc, char **argv){
 	}
 	for(int i = 0; i < class_size; i++){
 		for(int j = 0; j < class_size; j++){
-			vtrans[i][j] = (nextDouble()-0.5);
+			vtrans[i][j] = (nextDouble()-0.5)/100;
 		}
 		vinit[i] = (nextDouble()-0.5);
 	}
