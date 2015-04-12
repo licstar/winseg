@@ -1,6 +1,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <algorithm>
 using namespace std;
 
 #define MAX_STRING 1000
