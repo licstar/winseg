@@ -764,6 +764,7 @@ int main(int argc, char **argv){
 	
 	if(readFile(argv[1], words.value, words.size)){
 		printf("initialized with %s\n", argv[1]);
+<<<<<<< HEAD
 		double sum = 0;
 		for(int i = 0; i < words.size; i++){
 			sum += words.value[i]*words.value[i];
@@ -779,6 +780,8 @@ int main(int argc, char **argv){
 				words.value[i] *= v;
 			}
 		}
+=======
+>>>>>>> parent of d02ebfa... word level的最终版
 	}else{
 		printf("not initialized\n");
 	}
